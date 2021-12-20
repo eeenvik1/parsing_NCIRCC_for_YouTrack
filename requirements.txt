@@ -1,0 +1,10 @@
+json
+PyPDF2
+re
+jinja2
+requests
+from bs4 
+urllib3
+from cpe 
+nvdlib
+ast
