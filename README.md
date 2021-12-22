@@ -34,6 +34,10 @@ URL = "<URL>'
 python3 main.py
 ```
 
+## Example
+Пример работы скрипта main.py
+![alt text](https://github.com/eeenvik1/parsing_NCIRCC_for_YouTrack/blob/main/example_youtrack(NCICC).png?raw=true)
+
 
 Для автоматической работы скрипта следует использовать `cron`
 Например запуск скрипта каждый час:
