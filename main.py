@@ -183,7 +183,7 @@ def get_cve_data(cve):
             product_image_list.append(product[0])
             version = cpe_parsed.get_version()
             if (version[0] != '-' and version[0] != '*'):
-                version_list.append(version[0])
+                version_list.append(f'{product[0]} - {version[0]}')
 
         temp1 = []
         for item in version_list:
