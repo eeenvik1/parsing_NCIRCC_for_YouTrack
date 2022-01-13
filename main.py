@@ -342,7 +342,7 @@ create_pdf_file(links)
 name_list = get_name_list(PATH) # Получение имен скаченных файлов для парсинга
 cve_line = get_cve_list(name_list) # Получение списка cve из биллютеня НКЦКИ
 
-URL = 'https://vm-proval.myjetbrains.com/youtrack/api/issues?fields=summary'
+URL = config.get("URL")
 headers = {
     "Accept": "application/json",
     "Authorization": "Bearer {}".format(YOU_TRACK_TOKEN),
