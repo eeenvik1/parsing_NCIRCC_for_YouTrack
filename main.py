@@ -13,6 +13,8 @@ import nvdlib
 import ast
 import re
 from dotenv import dotenv_values
+import smtplib
+from email.message import EmailMessage
 config = dotenv_values(".env")
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -333,46 +335,73 @@ def get_cve_data(cve):
         print(f'no information for {cve}')
 
 
-if __name__ == "__main__":
-    links = get_links_for_bulletine()
-    create_pdf_file(links)
-    name_list = get_name_list(PATH) # Получение имен скаченных файлов для парсинга
-    cve_line = get_cve_list(name_list) # Получение списка cve из биллютеня НКЦКИ
+#-----------------------------------------------MAIN--------------------------------------------------------------------
 
-    URL = config.get("URL")
-    headers = {
-        "Accept": "application/json",
-        "Authorization": "Bearer {}".format(YOU_TRACK_TOKEN),
-        "Content-Type": "application/json"
-    }
-    list_summary = requests.get(URL, headers=headers).json()  # Получение последних 500 задач с YouTrack
-    # Удаление cve, информация о которых уже есть в YouTrack
-    sum_list = []
-    for n in range(len(list_summary)):
-        sum_list.append(list_summary[n]['summary'])
+links = get_links_for_bulletine()
+create_pdf_file(links)
+name_list = get_name_list(PATH) # Получение имен скаченных файлов для парсинга
+cve_line = get_cve_list(name_list) # Получение списка cve из биллютеня НКЦКИ
 
-    repeat_list = []
-    for item in cve_line:
-        for n in sum_list:
-            index = n.find(item)
-            if index != -1:
-                repeat_list.append(item)
-    buff_list = []
-    for item in repeat_list:
-        regex = re.search(r'CVE-\d{4}-\d{4,6}', item)
-        buff_list.append(str(regex.group()))
+URL = 'https://vm-proval.myjetbrains.com/youtrack/api/issues?fields=summary'
+headers = {
+    "Accept": "application/json",
+    "Authorization": "Bearer {}".format(YOU_TRACK_TOKEN),
+    "Content-Type": "application/json"
+}
+list_summary = requests.get(URL, headers=headers).json()  # Получение последних 500 задач с YouTrack
 
-    vuln_list = []
-    for item in cve_line:
-        if item not in buff_list:
-            vuln_list.append(item)
+sum_list = []
+for n in range(len(list_summary)):
+    sum_list.append(list_summary[n]['summary'])
 
-    for cve in vuln_list:
-        get_cve_data(cve)
+repeat_list = []
+for item in cve_line:
+    for n in sum_list:
+        index = n.find(item)
+        if index != -1:
+            repeat_list.append(item)
+buff_list = []
+for item in repeat_list:
+    regex = re.search(r'CVE-\d{4}-\d{4,6}', item)
+    buff_list.append(str(regex.group()))
+
+vuln_list = []
+for item in cve_line:
+    if item not in buff_list:
+        vuln_list.append(item)
+
+chang = []
+for cve in vuln_list:
+    chang.append(get_cve_data(cve))
+
+alert = []
+for item in chang:
+    if item != None:
+        alert.append(item)
+#--------------------------------------------------MAIL_ALERT-----------------------------------------------------------
+if len(alert) > 0:
+    EMAIL_HOST = config.get("EMAIL_HOST")
+    EMAIL_PORT = config.get("EMAIL_PORT")
+    EMAIL_HOST_PASSWORD = config.get("EMAIL_HOST_PASSWORD")
+    EMAIL_HOST_USER = config.get("EMAIL_HOST_USER")
+    msg = EmailMessage()
+    msg['Subject'] = 'НКЦКИ'
+    msg['From'] = EMAIL_HOST_USER
+    msg['To'] = config.get("MSG_TO")
+    apchihba = ''
+    for item in alert:
+        apchihba += item + '\n'
+    body = f'Заведено {len(alert)} уязвимостей \n {apchihba}'
+    msg.set_content(body)
+    msg.set_content(body)
+    smtp_server = smtplib.SMTP_SSL(host=EMAIL_HOST, port=EMAIL_PORT)
+    smtp_server.login(user=EMAIL_HOST_USER, password=EMAIL_HOST_PASSWORD)
+    smtp_server.send_message(msg)
+    print('Email sended {}'.format(msg['Subject']))
 
 # remove pdf buffer-----------------------------------------------------------------------------------------------------
-    time.sleep(5)
-    path_to_remove_pdf = []
-    for item in name_list:
-        path_to_remove_pdf.append(f'{PATH}{item}')
-    remove_pdf_file(path_to_remove_pdf)
+time.sleep(5)
+path_to_remove_pdf = []
+for item in name_list:
+    path_to_remove_pdf.append(f'{PATH}{item}')
+remove_pdf_file(path_to_remove_pdf)
