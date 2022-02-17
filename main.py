@@ -105,9 +105,12 @@ def get_cve_data(cve):
 
 ### Продукт, вендор
 
+<details>
+
 {% for vendor in d.product_vendor_list %}{{vendor}}
 {% endfor %}
 
+</details>
 
 ### CVSSv3 Score
 
@@ -118,6 +121,7 @@ def get_cve_data(cve):
 {{d.vector}}
 
 ### CPE
+<details>
 
 {% if d.configurations.nodes %}
 {% for conf in d.configurations.nodes %}
@@ -127,16 +131,24 @@ def get_cve_data(cve):
 **AND:**{% endif %}{% for child in children %}{% if child.cpe_match|length > 1 %}**OR:**{% endif %}{% for cpe in child.cpe_match %}
 {{ cpe.cpe23Uri | replace("*", "\*") }}{% endfor %}{% endfor %}{% endfor %}
 {% endif %}
+</details>
+
 ### Links
+<details>
 
 {% for link in d.links %}{{ link }}
 {% endfor %}
 
+
 {% if d.exploit_links %}
+
 ### Exploit
+
 {% for exploit in d.exploit_links %}{{exploit}}
 {% endfor %}
 {% endif %}
+
+</details>
     """
 
     YOU_TRACK_PROJECT_ID = config.get("YOU_TRACK_PROJECT_ID")
@@ -150,7 +162,8 @@ def get_cve_data(cve):
                'Execute arbitrary commands', 'Obtain highly sensitive information', 'Bypass security',
                'Remote Code Execution', 'Memory Corruption', 'Arbitrary code execution', 'CSV Injection',
                'Heap corruption', 'Out of bounds memory access', 'Sandbox escape', 'NULL pointer dereference',
-               'Remote Code Execution']
+               'Remote Code Execution', 'RCE', 'Authentication Error', 'Use-After-Free', 'Use After Free',
+               'Corrupt Memory', 'Execute Untrusted Code', 'Run Arbitrary Code', 'heap out-of-bounds write', 'OS Command injection', 'Elevation of Privilege']
     try:
         r = nvdlib.getCVE(cve, cpe_dict=False)
         cve_cpe_nodes = r.configurations.nodes
@@ -292,6 +305,27 @@ def get_cve_data(cve):
             requests.post(URL_get_vetsions, headers=headers, json=payload)
 
     # upload information on cve---------------------------------------------------------------------------------------------
+        buff_content = []
+        buff_versions = []
+        if re.search(r'windows', product_vendor_list[0]):
+            con = {"name": "Microsoft Windows"}
+            buff_content.append(con)
+            buff_versions = versions
+        elif re.search(r'juniper', product_vendor_list[0]):
+            con = {"name": "Juniper"}
+            buff_content.append(con)
+            buff_versions = versions
+        elif re.search(r'adaptive_security_appliance', product_vendor_list[0]):
+            con = {"name": "Cisco ASA"}
+            buff_content.append(con)
+            buff_versions = versions
+        else:
+            if content:
+                buff_content.append(content[0])
+            if versions:
+                buff_versions.append(versions[0])
+
+        vector = r.v3vector[9:len(r.v3vector)]
         request_payload = {
             "project": {
                 "id": YOU_TRACK_PROJECT_ID
@@ -309,7 +343,7 @@ def get_cve_data(cve):
                 {
                     "name": "Продукт (пакет)",
                     "$type": "MultiEnumIssueCustomField",
-                    "value": content
+                    "value": buff_content
                 },
                 {
                     "name": "Есть эксплоит",
@@ -319,67 +353,28 @@ def get_cve_data(cve):
                 {
                     "name": "Affected versions",
                     "$type": "MultiEnumIssueCustomField",
-                    "value": versions
+                    "value": buff_versions
                 },
                 {
                     "name": "CVSS Score",
                     "$type": "SimpleIssueCustomField",
                     "value": score
 
-                }
+                },
+                {
+                    "name": "CVSS Vector",
+                    "$type": "SimpleIssueCustomField",
+                    "value": str(vector)
+
+                },
             ]
         }
-        #print(request_payload) #Debug
-        print(requests.post(URL, headers=headers, json=request_payload).json()) # Выгрузка инфы о cve в YouTrack
+        post = requests.post(URL, headers=headers, json=request_payload)  # Выгрузка инфы о cve в YouTrack
+        return post.status_code
     except:
-        print(f'no information for {cve}')
+        pass
 
-
-#-----------------------------------------------MAIN--------------------------------------------------------------------
-
-links = get_links_for_bulletine()
-create_pdf_file(links)
-name_list = get_name_list(PATH) # Получение имен скаченных файлов для парсинга
-cve_line = get_cve_list(name_list) # Получение списка cve из биллютеня НКЦКИ
-
-URL = config.get("URL")
-headers = {
-    "Accept": "application/json",
-    "Authorization": "Bearer {}".format(YOU_TRACK_TOKEN),
-    "Content-Type": "application/json"
-}
-list_summary = requests.get(URL, headers=headers).json()  # Получение последних 500 задач с YouTrack
-
-sum_list = []
-for n in range(len(list_summary)):
-    sum_list.append(list_summary[n]['summary'])
-
-repeat_list = []
-for item in cve_line:
-    for n in sum_list:
-        index = n.find(item)
-        if index != -1:
-            repeat_list.append(item)
-buff_list = []
-for item in repeat_list:
-    regex = re.search(r'CVE-\d{4}-\d{4,6}', item)
-    buff_list.append(str(regex.group()))
-
-vuln_list = []
-for item in cve_line:
-    if item not in buff_list:
-        vuln_list.append(item)
-
-chang = []
-for cve in vuln_list:
-    chang.append(get_cve_data(cve))
-
-alert = []
-for item in chang:
-    if item != None:
-        alert.append(item)
-#--------------------------------------------------MAIL_ALERT-----------------------------------------------------------
-if len(alert) > 0:
+def email_alert(cve_list):
     EMAIL_HOST = config.get("EMAIL_HOST")
     EMAIL_PORT = config.get("EMAIL_PORT")
     EMAIL_HOST_PASSWORD = config.get("EMAIL_HOST_PASSWORD")
@@ -388,16 +383,58 @@ if len(alert) > 0:
     msg['Subject'] = 'НКЦКИ'
     msg['From'] = EMAIL_HOST_USER
     msg['To'] = config.get("MSG_TO")
-    apchihba = ''
-    for item in alert:
-        apchihba += item + '\n'
-    body = f'Заведено {len(alert)} уязвимостей \n {apchihba}'
+    if len(cve_list) == 1:
+        body = f'Добавлена информация о новой уязвимости {cve_list[0]}'
+    else:
+        body = f'Добавлена информация о новых уязвимостях\n {cve_list}'
     msg.set_content(body)
     msg.set_content(body)
     smtp_server = smtplib.SMTP_SSL(host=EMAIL_HOST, port=EMAIL_PORT)
     smtp_server.login(user=EMAIL_HOST_USER, password=EMAIL_HOST_PASSWORD)
     smtp_server.send_message(msg)
     print('Email sended {}'.format(msg['Subject']))
+
+#-----------------------------------------------MAIN--------------------------------------------------------------------
+URL = config.get("URL")
+headers = {
+    "Accept": "application/json",
+    "Authorization": "Bearer {}".format(YOU_TRACK_TOKEN),
+    "Content-Type": "application/json"
+}
+list_summary = requests.get(URL, headers=headers).json()  # Получение задач с YouTrack
+links = get_links_for_bulletine()
+create_pdf_file(links)
+name_list = get_name_list(PATH) # Получение имен скаченных файлов для парсинга
+cve_line = get_cve_list(name_list) # Получение списка cve из биллютеня НКЦКИ
+
+broke_sum_list = []
+for n in range(len(list_summary)): #Получение описания для каждой уязвимости
+    broke_sum_list.append(list_summary[n]['summary'])
+
+sum_list = []
+for item in broke_sum_list: #Выдергивание идентификатора CVE из каждого описания уязвимости
+    regex = re.search(r'CVE-\d{4}-\d{4,8}', item)
+    if regex:
+        sum_list.append(str(regex.group()))
+
+vuln_list = []
+for item in cve_line: #Удаление идентификаторов CVE по которым уже заведены задачи
+    if item not in sum_list:
+        vuln_list.append(item)
+
+cve_list = []
+for i in range(len(vuln_list)): # Заведение задач в YouTrack
+    cve = vuln_list[i]
+    post = get_cve_data(cve)
+    if post == 200:
+        cve_list.append(cve)
+        print(f'{i + 1} / {len(vuln_list)} - {post}')
+    else:
+        print(f'{i + 1} / {len(vuln_list)} - No information for {cve}')
+
+if cve_list:
+    email_alert(cve_list)
+
 
 # remove pdf buffer-----------------------------------------------------------------------------------------------------
 time.sleep(5)
